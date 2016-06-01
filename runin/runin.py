@@ -43,6 +43,7 @@ def main():
     parser.add_argument("--ipv6", help="Enable IPv6", action="store_true")
     parser.add_argument("--private-networking", help="Enable private networking", action="store_true")
     parser.add_argument("--shell", help="Run SSH using the less secure os.system, allowing usage of the created droplet in shell mode. Enabled automatically if -c is not provided", action="store_true")
+    parser.add_argument("-k", "--keep", help="Keep server after disconnect", action="store_true")
     args = parser.parse_args()
     if args.list_regions:
         r = DO.get_regions(p=True)
@@ -75,10 +76,13 @@ def main():
         if args.shell or not args.command:
             os.system(" ".join(["'{}'".format(a.replace("'", "\\'")) for a in ssh]))
         else:
-            print(subprocess.check_output(["ssh", "root@" + droplet["networks"]["v4"][0]["ip_address"], args.command], shell=False))
-        if not DO.delete_droplet(droplet["droplet"]["id"]):
-            print("Droplet deletion errored. https://cloud.digitalocean.com/droplets", file=sys.stderr)
-            return 2
+            print(subprocess.check_output(ssh, shell=False))
+        if not args.keep:
+            if not DO.delete_droplet(droplet["droplet"]["id"]):
+                print("Droplet deletion errored. https://cloud.digitalocean.com/droplets", file=sys.stderr)
+                return 2
+        else:
+            print("Server is accessible at {}".format(droplet["droplet"]["networks"]["v4"][0]["ip_address"]))
         return 0
     else:
         parser.print_help()
