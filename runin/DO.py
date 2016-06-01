@@ -5,6 +5,7 @@ import time
 import uuid
 import sys
 import os
+import socket
 
 def get(TOKEN, endpoint):
     return requests.get("https://api.digitalocean.com/v2/{}".format(endpoint),
@@ -75,9 +76,7 @@ def get_action(id, p=False):
         action = get(get_token(), "/actions/{}".format(id))["action"]
         if action["status"] == "completed":
             if action["resource_type"] == "droplet":
-                print("Waiting for server to finish booting...", file=sys.stderr)
-                time.sleep(10)
-                return get(get_token(), "/droplets/{}".format(action["resource_id"]))["droplet"]
+                break
             return True
         elif action["status"] == "errored":
             return False
@@ -85,6 +84,16 @@ def get_action(id, p=False):
         if p:
             print("Waiting for action" + ("." * i) + (" " * (3-i)), end="\r", file=sys.stderr)
         time.sleep(3)
+    droplet = get(get_token(), "/droplets/{}".format(action["resource_id"]))["droplet"]
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    while True:
+        i = i+1 if i < 3 else 1
+        if p:
+            print("Waiting for server to finish booting" + ("." * i) + (" " * (3-i)), file=sys.stderr, end="\r")
+        if sock.connect_ex((droplet["networks"]["v4"][0]["ip_address"], 22)) == 0:
+            break
+        time.sleep(1)
+    return droplet
 
 def new_droplet(**kwargs):
     """ Arguments: https://developers.digitalocean.com/documentation/v2/#create-a-new-droplet """
