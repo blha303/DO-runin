@@ -1,20 +1,25 @@
+from __future__ import print_function
 import requests
+import time
+import uuid
+import sys
+import os
 
 def get(TOKEN, endpoint):
     return requests.get("https://api.digitalocean.com/v2/{}".format(endpoint),
                         headers={"Authorization": "Bearer {}".format(TOKEN)}
                         ).json()
 
-def post(TOKEN, endpoint, data=None):
+def post(TOKEN, endpoint, json=None):
     return requests.post("https://api.digitalocean.com/v2/{}".format(endpoint),
                          headers={"Authorization": "Bearer {}".format(TOKEN)},
-                         data=data
+                         json=json
                          ).json()
 
 def delete(TOKEN, endpoint):
     return requests.delete("https://api.digitalocean.com/v2/{}".format(endpoint),
                            headers={"Authorization": "Bearer {}".format(TOKEN)}
-                           ).json()
+                           ).status_code == requests.codes.no_content
 
 def get_token_from_file():
     try:
@@ -24,15 +29,65 @@ def get_token_from_file():
         return None
 
 def get_token():
-    return os.getenv("DO_TOKEN") or get_token_from_file() or input(os.path.expanduser(
+    try:
+        return os.getenv("DO_TOKEN") or get_token_from_file() or input(os.path.expanduser(
 """Please set your DigitalOcean personal access token as either:
 * $DO_TOKEN
 * ~/.DO-token
 * or enter it below as a temporary measure
 Use Ctrl-C to exit : """))
+    except KeyboardInterrupt:
+        print(file=sys.stderr)
+        sys.exit(130)
 
-def get_regions():
-    return {d["slug"]: d for d in DO_get(TOKEN, "/regions")["regions"]}
+def get_regions(p=False):
+    regions = get(get_token(), "/regions")["regions"]
+    if p:
+        _ = list(regions)
+        for region in _:
+            region["sizes"] = ",".join(sorted(region["sizes"]))
+            region["features"] = "".join(s[0] for s in region["features"])
+            print("{slug}: {name} ({features})   \t{sizes}".format(**region) + ("\tX" if not region["available"] else ""), file=sys.stderr)
+    return {d["slug"]: d for d in regions}
 
-def get_ssh_keys():
-    return {d["name"] if d["name"] else d["public_key"].split()[-1]: d for d in DO_get(TOKEN, "/account/keys")["ssh_keys"]}
+def get_ssh_keys(p=False):
+    keys = get(get_token(), "/account/keys")["ssh_keys"]
+    if p:
+        for key in keys:
+            print("\t{id}: {name} ({fingerprint}):\n{public_key}".format(**key), file=sys.stderr)
+    return keys
+
+def get_images(p=False):
+    images = get(get_token(), "/images")["images"]
+    if p:
+        print("Public:", file=sys.stderr)
+        for image in [i for i in images if i["public"]]:
+            print("{id}: {distribution} {name} ({slug})".format(**image), file=sys.stderr)
+        print("Private:", file=sys.stderr)
+        for image in [i for i in images if not i["public"]]:
+            print("{id}: {distribution} {name}".format(**image), file=sys.stderr)
+    return images
+
+def get_action(id, p=False):
+    i = 1
+    while True:
+        action = get(get_token(), "/actions/{}".format(id))["action"]
+        if action["status"] == "completed":
+            if action["resource_type"] == "droplet":
+                print("Waiting for server to finish booting...", file=sys.stderr)
+                time.sleep(10)
+                return get(get_token(), "/droplets/{}".format(action["resource_id"]))["droplet"]
+            return True
+        elif action["status"] == "errored":
+            return False
+        i = i+1 if i < 3 else 1
+        if p:
+            print("Waiting for action" + ("." * i) + (" " * (3-i)), end="\r", file=sys.stderr)
+        time.sleep(3)
+
+def new_droplet(**kwargs):
+    """ Arguments: https://developers.digitalocean.com/documentation/v2/#create-a-new-droplet """
+    return post(get_token(), "/droplets", json=kwargs)
+
+def delete_droplet(id):
+    return delete(get_token(), "/droplets/{}".format(id))
