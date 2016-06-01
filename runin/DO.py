@@ -1,4 +1,5 @@
 from __future__ import print_function
+input = raw_input if hasattr(__builtins__, "raw_input") else input
 import requests
 import time
 import uuid

@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 from __future__ import print_function
-input = raw_input if hasattr(__builtins__, "raw_input") else input
 
 import os
 import subprocess
